@@ -2,7 +2,7 @@ package awesomerRobotPlayer;
 
 import battlecode.common.*;
 
-public class AwesomerRobotPlayer{
+public class RobotPlayer{
 	
 	private static RobotController rc;
 	private static MapLocation rallyPoint;
