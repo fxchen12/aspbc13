@@ -10,7 +10,7 @@ public class Player_1 {
 	private static boolean isEncampmentSoldier;
 	private static MapLocation encampmentLoc;
 	
-	public static void run(RobotController myRC) 
+	public static void run(RobotController myRC) throws GameActionException
 	{
 		rc = myRC;
 		rallyPoint = findRallyPoint();
