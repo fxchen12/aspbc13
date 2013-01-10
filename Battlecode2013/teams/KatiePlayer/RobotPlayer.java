@@ -3,7 +3,7 @@ package KatiePlayer;
 import battlecode.common.*;
 
 
-public class Player_1 {
+public class RobotPlayer {
 	
 	private static RobotController rc;
 	private static MapLocation rallyPoint; 
