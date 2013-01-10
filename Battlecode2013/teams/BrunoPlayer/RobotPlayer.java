@@ -3,7 +3,7 @@ package BrunoPlayer;
 import battlecode.common.*;
 
 
-public class BrunoPlayer{
+public class RobotPlayer{
 	
 	private static RobotController rc;
 	private static MapLocation rallyPoint;
