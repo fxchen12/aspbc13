@@ -1,4 +1,4 @@
-package austinsSuperAwesomeRobot;
+package austinsSuperAwesomeRobotMinusSearch;
 
 import battlecode.common.*;
 
@@ -6,33 +6,30 @@ public class RobotPlayer{
 	
 	private static RobotController rc;
 	private static MapLocation rallyPoint;
-	private static MapLocation rallyPoint2;
+
 	
 	private static int[][] neighborArray;
 	private static int[] self = {2,2};
 	private static int[][] surroundingIndices = new int[5][5];
-	private static boolean Rally2Soldier;
+
 	private static MapLocation[] encampmentsClose;
 	private static MapLocation[] encampmentsEverywhere;
-	private static MapLocation[] gotIt;
-	private static int[] gotItRob;
-	private static int x,y;
-	private static int match=0;
 	
+	private static int generatorTime=0;
+
 	public static void run(RobotController myRC){
 		rc = myRC;
 		rallyPoint = findRallyPoint();
-		rallyPoint2 = findRallyPoint2();
+	
 		surroundingIndices = initSurroundingIndices(Direction.NORTH);
 		while(true){
 			try{
 				if (rc.getType()==RobotType.SOLDIER){
-					
-					
 					soldierCode();
-				}else{
+				}else if(rc.getType()==RobotType.HQ){
 					hqCode();
 				}
+				
 			}catch (Exception e){
 				System.out.println("caught exception before it killed us:");
 				e.printStackTrace();
@@ -43,133 +40,85 @@ public class RobotPlayer{
 	private static void soldierCode(){
 		while(true){
 			try{
-				if (rc.getRobot().getID()%2==0) {
-					Rally2Soldier = true;
-				}
+				
 			
 				Robot[] enemyRobots = rc.senseNearbyGameObjects(Robot.class,1000000,rc.getTeam().opponent());
 				
 				if(enemyRobots.length==0){//no enemies nearby
-					encampmentsClose = rc.senseEncampmentSquares(rc.getLocation(), 9, Team.NEUTRAL);
+					encampmentsClose = rc.senseEncampmentSquares(rc.getLocation(), 16, Team.NEUTRAL);
 					if(rc.senseEncampmentSquare((rc.getLocation()))){
-						rc.captureEncampment(RobotType.SUPPLIER);
+						generatorTime=rc.readBroadcast(0);
+						if (generatorTime==3){
+							rc.captureEncampment(RobotType.GENERATOR);
+							generatorTime=0;
+							
+							
+						}
+						else{
+							rc.captureEncampment(RobotType.SUPPLIER);
+							generatorTime+=1;
+							
+							}
+						rc.broadcast(0, generatorTime);
+						rc.yield();
 					}
 					else if (encampmentsClose.length != 0){
 						
-						int count=0;
-						while (count!=1080){ //This can be made more efficient... too many while loops.
-							if (rc.readBroadcast(count)!=0);{
-								y=rc.readBroadcast(count)%100;
-								x=rc.readBroadcast(count)%100000-y;
+
+						int randomNum = (int)(Math.random()*encampmentsClose.length); 
+								goToLocation(encampmentsClose[randomNum]);
+								rc.yield();
+			
 							
-							
-								gotIt[count]= new MapLocation(x,y);
-								gotItRob[count]= count;
-							}
-							count+=1;
-						}
-						count=0;
-						while (count!= encampmentsClose.length){
-							int count2=0;
-							match=0;
-							while (count2 !=gotIt.length){
-								if (encampmentsClose[count]==gotIt[count2]){
-									if (rc.getRobot().getID() != gotItRob[count]){
-										match=1;
-										break;
-									}
-								}
-								count2+=1;
-								
-							}
-						
-							if (match!=1){		
-								goToLocation(encampmentsClose[count]);
-								x=encampmentsClose[count].x;
-								y=encampmentsClose[count].y;
-								rc.broadcast(rc.getRobot().getID(), x*100+y);
-								
-								break;
-								}
-								count+=1;
-							
-						}
 					}
-					else if (Clock.getRoundNum()<200){
-						encampmentsEverywhere = rc.senseEncampmentSquares(rc.getLocation(), rc.getMapHeight()^2/2, Team.NEUTRAL);
+					else if (Clock.getRoundNum()<100){
+						encampmentsEverywhere = rc.senseEncampmentSquares(rc.getLocation(), 100, Team.NEUTRAL);
 						
 						if (encampmentsEverywhere.length != 0){
 							
-							int count=0;
-							while (count!=1080){
-								
-								y=rc.readBroadcast(count)%100;
-								x=rc.readBroadcast(count)-y;
-								MapLocation location= new MapLocation(x,y);
-								gotIt[count]=location;
-								count+=1;
-							}
-							count=0;
-							while (count!= encampmentsEverywhere.length){
-								int count2=0;
-								match=0;
-								while (count2 != gotIt.length){
-									if (encampmentsEverywhere[count]==gotIt[count2]){
-										match=1;
-									}
-									count2+=1;
+							int randomNum = (int)(Math.random()*encampmentsEverywhere.length); 
+									goToLocation(encampmentsEverywhere[randomNum]);
+									rc.yield();
 									
-								}
+								
+								
 							
-								if (match!=1){				
-									goToLocation(encampmentsEverywhere[count]);
-									x=encampmentsEverywhere[count].x;
-									y=encampmentsEverywhere[count].y;
-									rc.broadcast(rc.getRobot().getID(), x*100+y );
-									break;
-									}
-								count+=1;
+							
 								
-							}
-							if (match==1){
-								if (Rally2Soldier){
-									goToLocation(rallyPoint2);
-								}
-								else{
-									goToLocation(rallyPoint);
-								}
-								
-							}
-								
-						}else{
-							if (Rally2Soldier){
-								goToLocation(rallyPoint2);
-							}
-							else{
-								goToLocation(rallyPoint);
-							}
-							}
+						}
+						else{
+							goToLocation(rallyPoint);
+							rc.yield();
+						}
+						
+					}else if (Clock.getRoundNum()<200){
+						goToLocation(rallyPoint);
+						rc.yield();
 					}else{
 						goToLocation(rc.senseEnemyHQLocation());
+						rc.yield();
 					}
-				
+					
+					
 					
 				}else{//someone spotted
 					MapLocation closestEnemy = findClosest(enemyRobots);
 					boolean swarm = smartCountNeighbors(enemyRobots,closestEnemy);
 					if (swarm){
 						goToLocation(rc.senseHQLocation());
+						rc.yield();
 					
 					}
 					else{
 					goToLocation(closestEnemy);
+					rc.yield();
 					}
 				}
 			}catch (Exception e){
 				System.out.println("Soldier Exception");
 				e.printStackTrace();
 			}
-			rc.yield();
+			
 		}
 	}
 	private static MapLocation findClosest(Robot[] enemyRobots) throws GameActionException {
@@ -217,14 +166,7 @@ public class RobotPlayer{
 		MapLocation rallyPoint = new MapLocation(x,y);
 		return rallyPoint;
 	}
-	private static MapLocation findRallyPoint2() {
-		MapLocation enemyLoc = rc.senseEnemyHQLocation();
-		MapLocation ourLoc = rc.senseHQLocation();
-		int x = (enemyLoc.x-3*ourLoc.x)/4;
-		int y = (enemyLoc.y+3*ourLoc.y)/4;
-		MapLocation rallyPoint = new MapLocation(x,y);
-		return rallyPoint;
-	}
+	
 	public static void hqCode() throws GameActionException{
 		if (rc.isActive()) {
 			// Spawn a soldier
