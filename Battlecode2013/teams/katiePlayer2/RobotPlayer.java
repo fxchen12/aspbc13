@@ -4,6 +4,47 @@ import java.util.ArrayList;
 
 import battlecode.common.*;
 
+
+//Messaging code
+/*
+ * 1st-3rd digits) Three random digits set at top as constant randomMessagingDigits. Currently 152.
+ * 4th digit) Digit corresponding to the type of message:
+ * 		1 - group assignment
+ * 		2 - report
+ * 		3 - mission assignment
+ * 		4 - arrived at encampment
+ * 		5 - encampment type
+ * 		6 - outnumbered
+ * 5th-9th digits) Message (5 digits)
+ * 		Group assignment: 5 digit number corresponding to a channel. 
+ * 			If the number is less than 5 digits, then fill the early digits with 0s.
+ * 			For example, channel 86 would be 00086
+ * 		Report: All zeroes
+ * 		Mission Assignment: 
+ * 			a) Digit corresponding to mission type
+ * 				1 - rally
+ * 				2 - attack
+ * 				3 - capture
+ * 				4 - defend
+ * 			b) Two digits corresponding to x coordinate of robot destination (example if only 1 digit: 5 becomes 05)
+ * 			c) Two digits corresponding to y coordinate of robot destination (example if only 1 digit: 5 becomes 05)
+ * 		Encampment type:
+ * 			a) Digit corresponding to encampment type
+ * 				1 - medbay
+ * 				2 - shields
+ * 				3 - artillery
+ * 				4 - generator
+ * 				5 - supplier
+ * 			b) Other 4 digits are zeroes
+ * 		Outnumbered
+ * 			a) Digit corresponding to how significantly outnumbered a robot is (#enemies - #friends)
+ * 			b) Two digits corresponding to x coordinate of robot position (example if only 1 digit: 5 becomes 05)
+ * 			c) Two digits corresponding to y coordinate of robot position (example if only 1 digit: 5 becomes 05)
+ * 
+ * IMPORTANT: Soldier broadcasts go to channel = soldier ID + soldierBroadcastChannelOffset
+ */
+
+
 public class RobotPlayer {
 	private static RobotController rc;
 	// Soldier variables
@@ -21,8 +62,14 @@ public class RobotPlayer {
 	private static int criticalRangeSquared = 32; // TODO optimize
 	private static int criticalHealth = 10; // TODO optimize
 	private static int rallyRange = 10; // TODO optimize
+	private static int randomMessagingDigits = 152; //random digits in front of every message
+	private static int soldierBroadcastChannelOffset = 32100; //add this number to the soldier ID and use this to broadcast to HQ
 	
-	public static void run (RobotController myRC){
+	// Heuristic multipliers
+	private static int directionMultiplier = 5;
+	private static int mineMultiplier = 6;
+	
+	public static void run (RobotController myRC) throws GameActionException{
 		rc = myRC;
 		
 		while(true){
@@ -55,12 +102,12 @@ public class RobotPlayer {
 		}
 	}
 
-	private static void artilleryCode() {
+	private static void artilleryCode() throws GameActionException {
 		checkOutnumbered();
 		rc.yield();
 	}
 
-	private static void generatorCode() {
+	private static void generatorCode() throws GameActionException {
 		checkOutnumbered();
 		rc.yield();
 	}
@@ -97,24 +144,23 @@ public class RobotPlayer {
 	}
 	
 
-	private static void medbayCode() {
+	private static void medbayCode() throws GameActionException {
 		checkOutnumbered();
 		rc.yield();
 	}
 	
-	private static void shieldsCode() {
+	private static void shieldsCode() throws GameActionException {
 		checkOutnumbered();
 		rc.yield();
 	}
 	
-	private static void soldierCode() {
+	private static void soldierCode() throws GameActionException{
 		if (!assigned){
 			joinGroup();
 		}
-		checkOutnumbered();
 		checkEncampment();
 		int [] costs = new int[8];
-		if (rc.getEnergon() < criticalHealth){
+		if (rc.getEnergon() < criticalHealth || checkOutnumbered()){
 			costs = retreatCalculate();
 		}
 		else if (rc.senseNearbyGameObjects(Robot.class,criticalRangeSquared,rc.getTeam().opponent()).length > 0){
@@ -154,7 +200,7 @@ public class RobotPlayer {
 	}
 
 
-	private static void supplierCode() {
+	private static void supplierCode() throws GameActionException{
 		checkOutnumbered();
 		rc.yield();
 	}
@@ -165,9 +211,33 @@ public class RobotPlayer {
 	 * Check whether the number of enemies within sight range is
 	 * greater than the number of friendly units.
 	 * If so, message HQ.
+	 * 
+	 * Soldier broadcasts go to channel = soldier ID + soldierBroadcastChannelOffset
+	 * Message: randomMessagingDigits and then 6 and then :
+	 *		a) Digit corresponding to how significantly outnumbered a robot is (#enemies - #friends)
+	 * 		b) Two digits corresponding to x coordinate of robot position (example if only 1 digit: 5 becomes 05)
+	 * 		c) Two digits corresponding to y coordinate of robot position (example if only 1 digit: 5 becomes 05)
 	 */
-	private static void checkOutnumbered() {
-		//TODO implement
+	private static boolean checkOutnumbered() throws GameActionException {
+		Robot[] nearbyRobots = rc.senseNearbyGameObjects(Robot.class);
+		int friendlyRobotCount = 0;
+		int enemyRobotCount = 0;
+		for (int i=0; i<nearbyRobots.length; i++) {
+			if (nearbyRobots[i].getTeam() == rc.getTeam()) {
+				friendlyRobotCount++;
+			}
+			else {
+				enemyRobotCount++;
+			}
+		}
+		if (friendlyRobotCount < enemyRobotCount) {
+			MapLocation currentLocation = rc.getLocation();
+			rc.broadcast(rc.getRobot().getID() + soldierBroadcastChannelOffset, 
+					randomMessagingDigits*1000000 + 6*100000 + (enemyRobotCount - friendlyRobotCount) * 10000 +
+					currentLocation.x * 100 + currentLocation.y);
+			return true;
+		}
+		return false;
 	}
 	
 	/**
@@ -215,8 +285,43 @@ public class RobotPlayer {
 		return null;
 	}
 	private static int[] attackCalculate() {
-		//TODO implement
-		return null;
+		int [] costs = new int [8];
+		int i = 0;
+		Direction bestDirection = rc.getLocation().directionTo(goal);
+		Direction secondBestLeft = bestDirection.rotateLeft();
+		Direction secondBestRight = bestDirection.rotateRight();
+		Direction worst = bestDirection.opposite();
+		Direction secondWorstLeft = worst.rotateLeft();
+		Direction secondWorstRight = worst.rotateRight();
+		for (Direction d:Direction.values()){
+			if (!rc.canMove(d)){
+				costs[i] = 1000;
+			}
+			else{
+				MapLocation target = rc.getLocation().add(d);
+				// Factor in correct direction
+				if (d == bestDirection){
+					costs [i] -= (2 * directionMultiplier);
+				} else if (d == secondBestLeft){
+					costs [i] -= (directionMultiplier);
+				} else if (d == secondBestRight){
+					costs [i] -= (directionMultiplier);
+				} else if (d == worst){
+					costs [i] += (2 * directionMultiplier);
+				} else if (d == secondWorstLeft){
+					costs [i] += (directionMultiplier);
+				} else if (d == secondWorstRight){
+					costs [i] += (directionMultiplier);
+				}
+				// Factor in mine defusing
+				Team mineTeam = rc.senseMine(target);
+				if (mineTeam == rc.getTeam().opponent() || mineTeam == Team.NEUTRAL){
+					costs [i] += (mineMultiplier);
+				}
+			}
+			i++;
+		}
+		return costs;
 	}
 	private static int[] captureCalculate() {
 		//TODO implement
@@ -234,8 +339,15 @@ public class RobotPlayer {
 	 * @return the direction of least cost
 	 */
 	private static Direction findMin(int[] costs) {
-		//TODO implement
-		return null;
+		int min = 999;
+		int i = 0;
+		for (int cost:costs){
+			if (cost <= min){
+				min = cost;
+			}
+			i++;
+		}
+		return Direction.values()[i];
 	}
 	
 	/**
@@ -314,4 +426,7 @@ public class RobotPlayer {
 	private static int countSoldiers() {
 		return rc.senseNearbyGameObjects(Robot.class,(Math.max(rc.getMapHeight(),rc.getMapWidth()))^2,rc.getTeam()).length;
 	}
+	
+	
+
 }
