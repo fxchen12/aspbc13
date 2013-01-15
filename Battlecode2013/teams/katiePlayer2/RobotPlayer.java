@@ -28,8 +28,9 @@ import battlecode.common.*;
  * 				4 - defend
  * 			b) Two digits corresponding to x coordinate of robot destination (example if only 1 digit: 5 becomes 05)
  * 			c) Two digits corresponding to y coordinate of robot destination (example if only 1 digit: 5 becomes 05)
- * 		Encampment type:
+ * 		Encampment:
  * 			a) Digit corresponding to encampment type
+ * 				0 - unassigned (soldier reporting that it is standing on unassigned encampment)
  * 				1 - medbay
  * 				2 - shields
  * 				3 - artillery
@@ -233,8 +234,9 @@ public class RobotPlayer {
 		if (friendlyRobotCount < enemyRobotCount) {
 			MapLocation currentLocation = rc.getLocation();
 			rc.broadcast(rc.getRobot().getID() + soldierBroadcastChannelOffset, 
-					randomMessagingDigits*1000000 + 6*100000 + (enemyRobotCount - friendlyRobotCount) * 10000 +
-					currentLocation.x * 100 + currentLocation.y);
+					(int)(randomMessagingDigits*Math.pow(10,6) + 6*Math.pow(10,5)) + 
+					(int)((enemyRobotCount - friendlyRobotCount) * Math.pow(10,4)) +
+					(int)(currentLocation.x * Math.pow(10, 2)) + currentLocation.y);
 			return true;
 		}
 		return false;
@@ -244,10 +246,61 @@ public class RobotPlayer {
 	 * For use by soldier.
 	 * 
 	 * Check whether the soldier is standing on an encampment and not capturing it.
-	 * Message HQ and wait for instructions regarding what to build.
+	 * See if there is a message from HQ giving instructions on what to build.
+	 * If there are instructions, then follow them.
+	 * Otherwise, message HQ and wait for instructions regarding what to build.
+	 * 
+	 * Encampment Message (randomMessagingDigits 5 _____):
+	 * 			a) Digit corresponding to encampment type
+	 * 				0 - unassigned (soldier reporting that it is standing on unassigned encampment)
+	 * 				1 - medbay
+	 * 				2 - shields
+	 * 				3 - artillery
+	 * 				4 - generator
+	 * 				5 - supplier
+	 * 			b) Other 4 digits are zeroes
 	 */
-	private static void checkEncampment() {
-		//TODO implement
+	private static void checkEncampment() throws GameActionException{
+		MapLocation myLoc = rc.getLocation();
+		int myID = rc.getRobot().getID();
+		if (rc.senseEncampmentSquare(myLoc) && rc.senseObjectAtLocation(myLoc).getTeam() == Team.NEUTRAL) {
+			int message = rc.readBroadcast(myID + soldierBroadcastChannelOffset);
+			if ((int)(message / Math.pow(10, 6)) == randomMessagingDigits &&
+					(int)((message % Math.pow(10,6))/Math.pow(10, 5)) == 5 && 
+					(int)((message%Math.pow(10,5))/Math.pow(10,4)) != 0)
+			{
+				int x = (int)((message%Math.pow(10,5))/Math.pow(10,4));
+				RobotType encampmentType = null;
+				switch(x) {
+				case 1:
+					encampmentType = RobotType.MEDBAY;
+					break;
+				case 2:
+					encampmentType = RobotType.SHIELDS;
+					break;
+				case 3:
+					encampmentType = RobotType.ARTILLERY;
+					break;
+				case 4:
+					encampmentType = RobotType.GENERATOR;
+					break;
+				case 5:
+					encampmentType = RobotType.SUPPLIER;
+					break;
+				default:
+					break;
+				}
+				if (encampmentType != null)
+				{
+					rc.captureEncampment(encampmentType);
+				}
+			}
+			else
+			{
+				rc.broadcast(myID + soldierBroadcastChannelOffset, 
+						(int)(randomMessagingDigits * Math.pow(10, 6) + 5*Math.pow(10,5)));
+			}	
+		}
 	}
 	
 	/**
@@ -426,7 +479,4 @@ public class RobotPlayer {
 	private static int countSoldiers() {
 		return rc.senseNearbyGameObjects(Robot.class,(Math.max(rc.getMapHeight(),rc.getMapWidth()))^2,rc.getTeam()).length;
 	}
-	
-	
-
 }
