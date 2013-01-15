@@ -21,6 +21,9 @@ public class RobotPlayer {
 	private static int criticalRangeSquared = 32; // TODO optimize
 	private static int criticalHealth = 10; // TODO optimize
 	private static int rallyRange = 10; // TODO optimize
+	// Heuristic multipliers
+	private static int directionMultiplier = 5;
+	private static int mineMultiplier = 6;
 	
 	public static void run (RobotController myRC){
 		rc = myRC;
@@ -215,8 +218,43 @@ public class RobotPlayer {
 		return null;
 	}
 	private static int[] attackCalculate() {
-		//TODO implement
-		return null;
+		int [] costs = new int [8];
+		int i = 0;
+		Direction bestDirection = rc.getLocation().directionTo(goal);
+		Direction secondBestLeft = bestDirection.rotateLeft();
+		Direction secondBestRight = bestDirection.rotateRight();
+		Direction worst = bestDirection.opposite();
+		Direction secondWorstLeft = worst.rotateLeft();
+		Direction secondWorstRight = worst.rotateRight();
+		for (Direction d:Direction.values()){
+			if (!rc.canMove(d)){
+				costs[i] = 1000;
+			}
+			else{
+				MapLocation target = rc.getLocation().add(d);
+				// Factor in correct direction
+				if (d == bestDirection){
+					costs [i] -= (2 * directionMultiplier);
+				} else if (d == secondBestLeft){
+					costs [i] -= (directionMultiplier);
+				} else if (d == secondBestRight){
+					costs [i] -= (directionMultiplier);
+				} else if (d == worst){
+					costs [i] += (2 * directionMultiplier);
+				} else if (d == secondWorstLeft){
+					costs [i] += (directionMultiplier);
+				} else if (d == secondWorstRight){
+					costs [i] += (directionMultiplier);
+				}
+				// Factor in mine defusing
+				Team mineTeam = rc.senseMine(target);
+				if (mineTeam == rc.getTeam().opponent() || mineTeam == Team.NEUTRAL){
+					costs [i] += (mineMultiplier);
+				}
+			}
+			i++;
+		}
+		return costs;
 	}
 	private static int[] captureCalculate() {
 		//TODO implement
@@ -234,8 +272,15 @@ public class RobotPlayer {
 	 * @return the direction of least cost
 	 */
 	private static Direction findMin(int[] costs) {
-		//TODO implement
-		return null;
+		int min = 999;
+		int i = 0;
+		for (int cost:costs){
+			if (cost <= min){
+				min = cost;
+			}
+			i++;
+		}
+		return Direction.values()[i];
 	}
 	
 	/**

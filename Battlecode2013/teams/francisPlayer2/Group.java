@@ -9,7 +9,6 @@ public class Group {
 	private int channel;
 	
 	public Group(int size, int mission, MapLocation goal, int channel) {
-		super();
 		this.size = size;
 		this.mission = mission;
 		this.goal = goal;
