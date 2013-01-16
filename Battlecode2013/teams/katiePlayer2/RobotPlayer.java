@@ -45,7 +45,6 @@ import battlecode.common.*;
  * IMPORTANT: Soldier broadcasts go to channel = soldier ID + soldierBroadcastChannelOffset
  */
 
-
 public class RobotPlayer {
 	private static RobotController rc;
 	// Soldier variables
@@ -265,9 +264,8 @@ public class RobotPlayer {
 		int myID = rc.getRobot().getID();
 		if (rc.senseEncampmentSquare(myLoc) && rc.senseObjectAtLocation(myLoc).getTeam() == Team.NEUTRAL) {
 			int message = rc.readBroadcast(myID + soldierBroadcastChannelOffset);
-			if ((int)(message / Math.pow(10, 6)) == randomMessagingDigits &&
-					(int)((message % Math.pow(10,6))/Math.pow(10, 5)) == 5 && 
-					(int)((message%Math.pow(10,5))/Math.pow(10,4)) != 0)
+			if (isLegitMessage(message) && getMessageDigit(message,4) == 5 && 
+					getMessageDigit(message,5) != 0)
 			{
 				int x = (int)((message%Math.pow(10,5))/Math.pow(10,4));
 				RobotType encampmentType = null;
@@ -304,15 +302,25 @@ public class RobotPlayer {
 	}
 	
 	/**
-	 * For use by soldier.
+	 * For use by soldier. Only accessed if assigned = false
 	 * 
 	 * Read channel corresponding to soldier ID for group channel assignment.
 	 * Set assigned to true if a group assignment is obtained and clear the channel.
 	 * Send message to HQ on channel frequency matching ID, signifying that
 	 * soldier is ready for action, if the read does not result in an assignment.
 	 */
-	private static void joinGroup() {
-		//TODO implement
+	private static void joinGroup() throws GameActionException {
+		int channel = rc.getRobot().getID() + soldierBroadcastChannelOffset;
+		int message = rc.readBroadcast(channel);
+		if (isLegitMessage(message) && getMessageDigit(message,4) == 1) {
+			groupFrequency = message%100000;
+			rc.broadcast(channel,0);
+			assigned = true;
+		}
+		else
+		{
+			rc.broadcast(channel,(int)(randomMessagingDigits*Math.pow(10,6) + 2*Math.pow(10,5)));
+		}
 	}
 	
 	/**
@@ -478,5 +486,23 @@ public class RobotPlayer {
 	 */
 	private static int countSoldiers() {
 		return rc.senseNearbyGameObjects(Robot.class,(Math.max(rc.getMapHeight(),rc.getMapWidth()))^2,rc.getTeam()).length;
+	}
+	
+	/**
+	 * Checks if a legitimate message by checking if the first three digits are the random
+	 * messaging digits and, as a result, if the message is 9 digits long.
+	 */
+	private static boolean isLegitMessage(int message) {
+		return (int)(message / Math.pow(10, 6)) == randomMessagingDigits;
+	}
+	
+	/**
+	 * Returns a certain digit of a message. 
+	 * For example, if the message is 123456789, the digit 1 is 1, the digit 2 is 2, etc.
+	 */
+	private static int getMessageDigit(int message, int digit)
+	{
+		int x = 10 - digit;
+		return (int)((message % Math.pow(10, x))/Math.pow(10, x-1));
 	}
 }
