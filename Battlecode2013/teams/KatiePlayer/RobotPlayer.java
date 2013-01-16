@@ -36,44 +36,45 @@ public class RobotPlayer {
 	public static void run(RobotController myRC) throws GameActionException
 	{
 		rc = myRC;
-		rallyPoint = findRallyPoint();
-		encampmentLoc = null;
-		timer = -1;
-		currentEncampTarget = 0;
-		chargeTime = (Clock.getRoundNum()/400+1)*400;
-		timeCount = 0;
-		healingRobots = new ArrayList<Integer>();
-		chargingRobots = new ArrayList<Integer>();
-		quiescentRobots = new ArrayList<Integer>();
-		encampmentRobots = new ArrayList<Integer>();
-		rallyTime = 0;
-		rallying = false;
-		
-		//midline code: the line that connects friendly hq to enemy hq; format: ax+b
-		MapLocation us = rc.senseHQLocation();
-		MapLocation them = rc.senseEnemyHQLocation();
-		double a = ((double)(them.y-us.y))/((double)(them.x-us.x));
-		double b = -1*a*((double)us.x)+((double)them.y);
-		midline = new double[2];
-		midline[0] = a;
-		midline[1] = b;
+//		rallyPoint = findRallyPoint();
+//		encampmentLoc = null;
+//		timer = -1;
+//		currentEncampTarget = 0;
+//		chargeTime = (Clock.getRoundNum()/400+1)*400;
+//		timeCount = 0;
+//		healingRobots = new ArrayList<Integer>();
+//		chargingRobots = new ArrayList<Integer>();
+//		quiescentRobots = new ArrayList<Integer>();
+//		encampmentRobots = new ArrayList<Integer>();
+//		rallyTime = 0;
+//		rallying = false;
+//		
+//		//midline code: the line that connects friendly hq to enemy hq; format: ax+b
+//		MapLocation us = rc.senseHQLocation();
+//		MapLocation them = rc.senseEnemyHQLocation();
+//		double a = ((double)(them.y-us.y))/((double)(them.x-us.x));
+//		double b = -1*a*((double)us.x)+((double)them.y);
+//		midline = new double[2];
+//		midline[0] = a;
+//		midline[1] = b;
 		
 		while (true) 
 		{
 			try 
 			{
-				timeCount++;
-				if(rallying) {
-					rallyTime++;
-				}
-				if(rc.getType() == RobotType.SOLDIER && rc.isActive()) 
+//				timeCount++;
+//				if(rallying) {
+//					rallyTime++;
+//				}
+//				if(rc.getType() == RobotType.SOLDIER && rc.isActive()) 
+//				{
+//					soldierCode();
+//				}
+//				
+				if (rc.getType() == RobotType.HQ)
 				{
-					soldierCode();
-				}
-				
-				else if (rc.getType() == RobotType.HQ)
-				{
-					HQSpawn();
+					rc.researchUpgrade(Upgrade.NUKE);
+					//HQSpawn();
 				}
 				// End turn
 				rc.yield();
