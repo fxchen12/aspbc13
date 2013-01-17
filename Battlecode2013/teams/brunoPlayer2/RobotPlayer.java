@@ -17,6 +17,9 @@ public class RobotPlayer {
 	private static MapLocation[]encampmentLocations;
 	private static ArrayList<Group> groupsList;
 	private static ArrayList<Integer> newSoldiers;
+	private static Upgrade[] upgrades = {Upgrade.VISION, Upgrade.FUSION, Upgrade.DEFUSION, Upgrade.PICKAXE, Upgrade.NUKE};
+	private static int currentUpgrade = 0;
+	private static int upgradeProgress = 0;
 	// Constants
 	private static int criticalRangeSquared = 32; // TODO optimize
 	private static int criticalHealth = 10; // TODO optimize
@@ -70,6 +73,7 @@ public class RobotPlayer {
 		if(Clock.getRoundNum() == 0){
 			encampmentLocations = rc.senseAllEncampmentSquares();
 		}
+		
 		groupSize = determineGroupSize();
 		maxSoldiers = calculateMaxSoldiers();
 		// Spawn troops if empty space around the base exists
@@ -284,7 +288,7 @@ public class RobotPlayer {
 	 * Message group channels accordingly.
 	 */
 	private static void manageEncampments() {
-		//TODO implement
+		
 	}
 	
 	/**
@@ -294,17 +298,29 @@ public class RobotPlayer {
 	 * Determine how to respond.
 	 * Message group channels and unassigned soldiers accordingly.
 	 */
+	private static void defendHQ() {
+		
+	}
 	private static void manageDefenses() {
-		//TODO implement
+
 	}
 	
 	/**
 	 * For use by HQ.
 	 * 
 	 * Determine priority order for upgrades and research.
+	 * @throws GameActionException 
 	 */
-	private static void researchUpgrades() {
-		//TODO implement
+	private static void researchUpgrades() throws GameActionException {
+		if (currentUpgrade<4){
+			rc.researchUpgrade(upgrades[currentUpgrade]);
+			upgradeProgress++;
+			if (upgradeProgress == 24) {
+				currentUpgrade++;
+				upgradeProgress = 0;
+			}
+		}
+		
 	}
 	
 	/**
@@ -313,5 +329,9 @@ public class RobotPlayer {
 	 */
 	private static int countSoldiers() {
 		return rc.senseNearbyGameObjects(Robot.class,(Math.max(rc.getMapHeight(),rc.getMapWidth()))^2,rc.getTeam()).length;
+	}
+	
+	private static void attackMicro() {
+		
 	}
 }
