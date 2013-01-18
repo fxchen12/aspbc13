@@ -13,21 +13,26 @@ public class RobotPlayer {
 	private static MapLocation goal;
 	// HQ variables
 	private static int groupSize = 10;
-	private static int maxSoldiers = 40;
+	private static int maxSoldiers = 25;
 	private static MapLocation[]encampmentLocations;
+	private static MapLocation[] mineLocations;
 	private static ArrayList<Group> groupsList;
 	private static ArrayList<Integer> newSoldiers;
 	private static Upgrade[] upgrades = {Upgrade.VISION, Upgrade.FUSION, Upgrade.DEFUSION, Upgrade.PICKAXE, Upgrade.NUKE};
 	private static int currentUpgrade = 0;
 	private static int upgradeProgress = 0;
+	private static MapLocation rallyPoint;
+	private static int size = 0;
+	private static int scout = 0;
 	// Constants
 	private static int criticalRangeSquared = 32; // TODO optimize
 	private static int criticalHealth = 10; // TODO optimize
 	private static int rallyRange = 10; // TODO optimize
+	public static boolean retreat = false;
 	
-	public static void run (RobotController myRC){
+	public static void run (RobotController myRC) throws GameActionException{
 		rc = myRC;
-		
+		rallyPoint = findRallyPoint();
 		while(true){
 			switch(rc.getType()){
 			case ARTILLERY:
@@ -58,6 +63,15 @@ public class RobotPlayer {
 		}
 	}
 
+	private static MapLocation findRallyPoint() {
+		MapLocation enemyLoc = rc.senseEnemyHQLocation();
+		MapLocation ourLoc = rc.senseHQLocation();
+		int x = (enemyLoc.x+3*ourLoc.x)/4;
+		int y = (enemyLoc.y+3*ourLoc.y)/5;
+		MapLocation rallyPoint = new MapLocation(x,y);
+		return rallyPoint;
+	}
+
 	private static void artilleryCode() {
 		checkOutnumbered();
 		rc.yield();
@@ -68,10 +82,13 @@ public class RobotPlayer {
 		rc.yield();
 	}
 	
-	private static void hqCode() {
+	private static void hqCode() throws GameActionException {
 		// Populate list of encampments to be captured
 		if(Clock.getRoundNum() == 0){
+			
 			encampmentLocations = rc.senseAllEncampmentSquares();
+			mineLocations = rc.senseMineLocations(new MapLocation(rc.getMapHeight()/2, rc.getMapWidth()/2), 100, Team.NEUTRAL);
+			
 		}
 		
 		groupSize = determineGroupSize();
@@ -111,8 +128,8 @@ public class RobotPlayer {
 		rc.yield();
 	}
 	
-	private static void soldierCode() {
-		if (!assigned){
+	private static void soldierCode() throws GameActionException {
+		/*if (!assigned){
 			joinGroup();
 		}
 		checkOutnumbered();
@@ -153,10 +170,125 @@ public class RobotPlayer {
 		}
 		catch (GameActionException e) {
 			e.printStackTrace();
-		}
+		}*/
+		
+		Robot[] enemyRobots = rc.senseNearbyGameObjects(Robot.class,1000000,rc.getTeam().opponent());
+		if (rc.isActive()){
+			Direction next;
+			if(enemyRobots.length==0){//no enemies nearby
+				
+				if (Clock.getRoundNum()<200){
+					next = nextDirection(rallyPoint);
+					if (rc.senseMine(rc.getLocation().add(next))!=null) 
+					{
+					if (rc.isActive()) rc.defuseMine(rc.getLocation().add(next));
+					rc.yield();
+					}
+					else if (rc.senseEncampmentSquare(rc.getLocation()))  {
+						if (rc.isActive()) rc.captureEncampment(RobotType.MEDBAY);
+						rc.yield();
+					}
+					/*else if (rc.senseMine(rc.getLocation().add(Direction.NONE))==null && !rc.getLocation().isAdjacentTo(rc.senseHQLocation())) {
+						if (rc.isActive()) rc.layMine();
+						rc.yield();
+					}*/
+					else {
+						if (next!=Direction.NONE && rc.isActive() && rc.canMove(next)) rc.move(next);
+						rc.yield();
+					}
+					
+				}
+				else{
+					if (retreat==false) {
+						next = nextDirection(rc.senseEnemyHQLocation());
+						if (rc.senseMine(rc.getLocation().add(next))!=null) 
+						{
+						if (rc.isActive()) rc.defuseMine(rc.getLocation().add(next));
+						rc.yield();
+						}
+						
+						/*next = minelessDirection(rc.senseEnemyHQLocation());
+						if (next!= Direction.NONE && rc.isActive() && rc.canMove(next)) rc.move(next);
+						rc.yield();*/
+					}
+					else {
+						next = nextDirection(rc.senseAlliedEncampmentSquares()[0]);
+						if (rc.senseMine(rc.getLocation().add(next))!=null) 
+						{
+						if (rc.isActive()) rc.defuseMine(rc.getLocation().add(next));
+						rc.yield();
+						}
+						
+						/*next = minelessDirection(rc.senseEnemyHQLocation());
+						if (next!= Direction.NONE && rc.isActive() && rc.canMove(next)) rc.move(next);
+						rc.yield();*/
+					}
+					
+					
+				}
+				}
+			else{//someone spotted
+				int closestDist = 1000000;
+				MapLocation closestEnemy=null;
+				for (int i=0;i<enemyRobots.length;i++){
+					Robot arobot = enemyRobots[i];
+					RobotInfo arobotInfo = rc.senseRobotInfo(arobot);
+					int dist = arobotInfo.location.distanceSquaredTo(rc.getLocation());
+					if (dist<closestDist){
+						closestDist = dist;
+						closestEnemy = arobotInfo.location;
+					}
+				}
+				//next = minelessDirection(closestEnemy);
+				
+				next = nextDirection(closestEnemy);
+				if (rc.senseMine(rc.getLocation().add(next))!=null) 
+				{
+				if (rc.isActive()) rc.defuseMine(rc.getLocation().add(next));
+				rc.yield();
+				}
+				if (next!=Direction.NONE && rc.isActive() && rc.canMove(next)) rc.move(next);
+				rc.yield();
+			}
+			}
 		rc.yield();
-	}
 
+	}
+		
+
+	private static Direction nextDirection(MapLocation whereToGo) throws GameActionException {
+		int dist = rc.getLocation().distanceSquaredTo(whereToGo);
+		if (dist>0&&rc.isActive()){
+			Direction dir = rc.getLocation().directionTo(whereToGo);
+			int[] directionOffsets = {0,1,-1,2,-2};
+			Direction lookingAtCurrently = dir;
+			lookAround: for (int d:directionOffsets){
+				lookingAtCurrently = Direction.values()[(dir.ordinal()+d+8)%8];
+				if(rc.canMove(lookingAtCurrently)){
+					break lookAround;
+				}
+			}
+			return lookingAtCurrently;
+		}
+		return Direction.NONE;
+	}
+	private static Direction minelessDirection (MapLocation whereToGo) throws GameActionException {
+		Direction lookingAtCurrently;
+		int dist = rc.getLocation().distanceSquaredTo(whereToGo);
+		if (dist>0&&rc.isActive()){
+			Direction dir = rc.getLocation().directionTo(whereToGo);
+			int[] directionOffsets = {0,1,-1,2,-2};
+			lookingAtCurrently = dir;
+			for (int d:directionOffsets){
+				lookingAtCurrently = Direction.values()[(dir.ordinal()+d+8)%8];
+				if (rc.canMove(lookingAtCurrently) && rc.senseMine(rc.getLocation().add(lookingAtCurrently))==null) {
+					break;
+				}
+			}
+			return lookingAtCurrently;
+		}
+		return Direction.NONE;
+	}
 
 	private static void supplierCode() {
 		checkOutnumbered();
@@ -328,7 +460,8 @@ public class RobotPlayer {
 	 * @return the total number of soldiers on our team that exist at a given time
 	 */
 	private static int countSoldiers() {
-		return rc.senseNearbyGameObjects(Robot.class,(Math.max(rc.getMapHeight(),rc.getMapWidth()))^2,rc.getTeam()).length;
+		return rc.senseNearbyGameObjects(Robot.class,(Math.max(rc.getMapHeight(),rc.getMapWidth()))^2,Team.A).length;
+		
 	}
 	
 	private static void attackMicro() {
