@@ -1,533 +1,699 @@
 package KatiePlayer;
 
+import java.util.ArrayList;
+
 import battlecode.common.*;
 
-import java.io.*;
-import java.util.*;
 
+//Messaging code
+/*
+ * 1st-3rd digits) Three random digits set at top as constant randomMessagingDigits. Currently 152.
+ * 4th digit) Digit corresponding to the type of message:
+ * 		1 - group assignment
+ * 		2 - report
+ * 		3 - mission assignment
+ * 		4 - arrived at encampment
+ * 		5 - encampment type
+ * 		6 - outnumbered
+ * 5th-9th digits) Message (5 digits)
+ * 		Group assignment: 5 digit number corresponding to a channel. 
+ * 			If the number is less than 5 digits, then fill the early digits with 0s.
+ * 			For example, channel 86 would be 00086
+ * 		Report: All zeroes
+ * 		Mission Assignment: 
+ * 			a) Digit corresponding to mission type
+ * 				1 - rally
+ * 				2 - attack
+ * 				3 - capture
+ * 				4 - defend
+ * 			b) Two digits corresponding to x coordinate of robot destination (example if only 1 digit: 5 becomes 05)
+ * 			c) Two digits corresponding to y coordinate of robot destination (example if only 1 digit: 5 becomes 05)
+ * 		Encampment:
+ * 			a) Digit corresponding to encampment type
+ * 				0 - unassigned (soldier reporting that it is standing on unassigned encampment)
+ * 				1 - medbay
+ * 				2 - shields
+ * 				3 - artillery
+ * 				4 - generator
+ * 				5 - supplier
+ * 			b) Other 4 digits are zeroes
+ * 		Outnumbered
+ * 			a) Digit corresponding to how significantly outnumbered a robot is (#enemies - #friends)
+ * 			b) Two digits corresponding to x coordinate of robot position (example if only 1 digit: 5 becomes 05)
+ * 			c) Two digits corresponding to y coordinate of robot position (example if only 1 digit: 5 becomes 05)
+ * 
+ * IMPORTANT: Soldier broadcasts go to channel = soldier ID + soldierBroadcastChannelOffset
+ */
 
 public class RobotPlayer {
-	
 	private static RobotController rc;
-	private static MapLocation rallyPoint; 
-	private static MapLocation encampmentLoc;
-	private static ArrayList<MapLocation> encampLocs;
-	private static int timer;
-	private static int currentEncampTarget;
-	private static int chargeTime; //time until soldiers all rush enemy HQ
-
-	private static int[][] neighborArray;
-	private static int[] self = {2,2};
-	private static int[][] surroundingIndices = new int[5][5];
+	// Soldier variables
+	private static boolean assigned = false;
+	private static int groupFrequency;
+	private static int mission = 1;
+	private static MapLocation goal;
+	private static boolean iCheckedIfMineWasLarger=false;
+	// HQ variables
+	// Note that the max soldier ID will be broadcast in broadcast channel soldierBroadcastChannelOffset - 1
+	private static int groupSize = 10;
+	private static int maxSoldiers = 40;
+	private static ArrayList<Integer> newSoldiers;
+	// Constants
+	private static int criticalRangeSquared = 32; // TODO optimize
+	private static int criticalHealth = 10; // TODO optimize
+	private static int rallyRange = 10; // TODO optimize
+	private static int randomMessagingDigits = 152; //random digits in front of every message
+	private static int soldierBroadcastChannelOffset = 32100; //add this number to the soldier ID and use this to broadcast to HQ
+	private static int smallMapSize=60; //TODO optimize
+	private static int reallyClose=100; //TODO optimize
+	private static int kindaClose=200; //TODO optimize
 	
-	private static ArrayList<Integer> healingRobots;
-	private static int timeCount;
+	// Heuristic multipliers
+	private static int directionMultiplier = 5;
+	private static int mineMultiplier = 6;
 	
-	private static ArrayList<Integer> chargingRobots;
-	private static ArrayList<Integer> quiescentRobots;
-	private static ArrayList<Integer> encampmentRobots;
+	//Initial info about the game
+	private static int[] gameDimensions; //x and y dimensions of the game
+	private static MapLocation[] mineLocations; 
+	private static MapLocation[] encampmentLocations;
+	private static MapLocation ourLoc;
+	private static MapLocation theirLoc;
 	
-	private static int rallyTime;
-	private static boolean rallying;
+	//Strategy
+	private static RobotType encampmentsToTake;
+	private static String strategy;
+	private static int encampmentMax; 
+	private static int research;
 	
-	private static double[] midline; //ax + b, [a,b]
-	
-		
-	public static void run(RobotController myRC) throws GameActionException
-	{
+	public static void run (RobotController myRC) throws GameActionException{
 		rc = myRC;
-//		rallyPoint = findRallyPoint();
-//		encampmentLoc = null;
-//		timer = -1;
-//		currentEncampTarget = 0;
-//		chargeTime = (Clock.getRoundNum()/400+1)*400;
-//		timeCount = 0;
-//		healingRobots = new ArrayList<Integer>();
-//		chargingRobots = new ArrayList<Integer>();
-//		quiescentRobots = new ArrayList<Integer>();
-//		encampmentRobots = new ArrayList<Integer>();
-//		rallyTime = 0;
-//		rallying = false;
-//		
-//		//midline code: the line that connects friendly hq to enemy hq; format: ax+b
-//		MapLocation us = rc.senseHQLocation();
-//		MapLocation them = rc.senseEnemyHQLocation();
-//		double a = ((double)(them.y-us.y))/((double)(them.x-us.x));
-//		double b = -1*a*((double)us.x)+((double)them.y);
-//		midline = new double[2];
-//		midline[0] = a;
-//		midline[1] = b;
 		
-		while (true) 
-		{
-			try 
-			{
-//				timeCount++;
-//				if(rallying) {
-//					rallyTime++;
-//				}
-//				if(rc.getType() == RobotType.SOLDIER && rc.isActive()) 
-//				{
-//					soldierCode();
-//				}
-//				
-				if (rc.getType() == RobotType.HQ)
-				{
-					rc.researchUpgrade(Upgrade.NUKE);
-					//HQSpawn();
-				}
-				// End turn
-				rc.yield();
-			} 
-			catch (Exception e) 
-			{
-				e.printStackTrace();
+		while(true){
+			switch(rc.getType()){
+			case ARTILLERY:
+				artilleryCode();
+				break;
+			case GENERATOR:
+				generatorCode();
+				break;
+			case HQ:
+				hqCode();
+				break;
+			case MEDBAY:
+				medbayCode();
+				break;
+			case SHIELDS:
+				shieldsCode();
+				break;
+			case SOLDIER:
+				soldierCode();
+				break;
+			case SUPPLIER:
+				supplierCode();
+				break;
+			default:
+				break;
+			
 			}
 		}
 	}
 	
-	private static void soldierCode() throws GameActionException
-	{
-		int ID = rc.getRobot().getID();
-		if (!quiescentRobots.contains(ID) && !chargingRobots.contains(ID) && !encampmentRobots.contains(ID)) {
-//			if (Math.random() < .05 || Clock.getRoundNum() < 50)
-//			{
-//				encampmentRobots.add(ID);
-//			}
-//			else {
-				quiescentRobots.add(ID);
-//			}
+	private static void artilleryCode() throws GameActionException {
+		checkOutnumbered();
+		rc.yield();
+	}
+
+	private static void generatorCode() throws GameActionException {
+		checkOutnumbered();
+		rc.yield();
+	}
+	
+	private static void hqCode() throws GameActionException {
+		// Populate list of encampments to be captured
+		if(Clock.getRoundNum() == 0){
+			encampmentLocations = rc.senseAllEncampmentSquares();
+			mineLocations = rc.senseMineLocations(rc.getLocation(), 1000000, Team.NEUTRAL);
+			ourLoc = rc.senseHQLocation();
+			theirLoc = rc.senseEnemyHQLocation();
+			gameDimensions = new int[2];
+			gameDimensions[0] = rc.getMapWidth();
+			gameDimensions[1] = rc.getMapHeight();
+			setInitialStrategy();
+		}
+		groupSize = determineGroupSize();
+		maxSoldiers = calculateMaxSoldiers();
+		// Spawn troops if empty space around the base exists
+		// Spawn troops if there is power to spare
+		if (countSoldiers() < maxSoldiers && hasEnoughPowerToSpawn()){
+			for (Direction d:Direction.values()){
+				if (rc.canMove(d)){
+					try {
+						rc.spawn(d);
+					} catch (GameActionException e) {
+						e.printStackTrace();
+					}
+					break;
+				}
+			}
+		// If there is no power to spare for troops, research upgrades
+		}
+		else {
+			researchUpgrades();
 		}
 		
-		if (quiescentRobots.contains(ID))
-		{
-			Robot[] enemyRobots = rc.senseNearbyGameObjects(Robot.class,1000000,rc.getTeam().opponent());
-			
-//			if (rc.getEnergon() == 40 && healingRobots.contains(ID)) {
-//				healingRobots.remove(healingRobots.indexOf(ID));
-//			}
-//			if (healingRobots.contains(ID)) {
-//				MapLocation nearestMedbay = findNearestMedbay();
-//				goToLocation(nearestMedbay);
-//			}
-			if(enemyRobots.length==0) 
-			{//no enemies nearby
-				if(rc.senseEncampmentSquare(rc.getLocation()) && timeCount < 150) {
-					rc.captureEncampment(RobotType.SUPPLIER);
+		//Control robot missions
+		/*
+		 *  4th digit) Digit corresponding to the type of message:
+		 * 		1 - group assignment
+		 * 		2 - report
+		 * 		3 - mission assignment
+		 * 		4 - arrived at encampment
+		 * 		5 - encampment type
+		 * 		6 - outnumbered
+		 */
+		int robotIDIndex = 0;
+		while (robotIDIndex <= rc.readBroadcast(soldierBroadcastChannelOffset-1)) {
+			int message = rc.readBroadcast(soldierBroadcastChannelOffset + robotIDIndex);
+			if (isLegitMessage(message)) {
+				int messageType = getMessageDigit(message, 4);
+				if (messageType == 1) {
+					
 				}
-				goToLocation(rallyPoint);
+				else if (messageType == 2) {
+					
+				}
+				else if (messageType == 3) {
+					
+				}
+				else if (messageType == 4) {
+					
+				}
+				else if (messageType == 5) {
+					
+				}
+				else if (messageType == 6) {
+					
+				}
+				else if (messageType == 7) {
+					
+				}
+			
+			robotIDIndex++;
+		}
+		assignMissions();
+		manageDefenses();
+		manageEncampments();
+		rc.yield();
+		}
+	}
+	
+	/*
+	 * For use in HQCode. Returns true if the HQ has enough power to spawn another soldier
+	 * while also maintaining the currently existing soldiers.
+	 */
+	private static boolean hasEnoughPowerToSpawn() throws GameActionException {
+		return true;
+	}
+	
+
+	private static void medbayCode() throws GameActionException {
+		checkOutnumbered();
+		rc.yield();
+	}
+	
+	private static void shieldsCode() throws GameActionException {
+		checkOutnumbered();
+		rc.yield();
+	}
+	
+	private static void soldierCode() throws GameActionException{
+		if (iCheckedIfMineWasLarger==false){
+			
+			int currentMax=rc.readBroadcast(soldierBroadcastChannelOffset-1);
+			if (currentMax<rc.getRobot().getID()){
+				rc.broadcast(soldierBroadcastChannelOffset-1, rc.getRobot().getID());
+			}
+			iCheckedIfMineWasLarger=true;
+		}
+		if (!assigned){
+			joinGroup();
+		}
+		checkEncampment();
+		int [] costs = new int[8];
+		if (rc.getEnergon() < criticalHealth || checkOutnumbered()){
+			costs = retreatCalculate();
+		}
+		else if (rc.senseNearbyGameObjects(Robot.class,criticalRangeSquared,rc.getTeam().opponent()).length > 0){
+			costs = interceptCalculate();
+		}
+		else{
+			switch(mission){
+			case 1:
+				costs = rallyCalculate();
+				break;
+			case 2:
+				costs = attackCalculate();
+				break;
+			case 3:
+				costs = captureCalculate();
+				break;
+			case 4:
+				costs = defendCalculate();
+				break;
+			default:
+				break;
+			}
+		}
+		Direction dir = findMin(costs);
+		try{
+			if (true) // TODO replace by if there is no mine in the direction and the unit can move
+			{rc.move(dir);}
+			else if (true) // TODO replace by if there is a mine in the direction
+			{} // defuse
+			else // if the unit cannot move in that direction
+			{} // stay still //TODO implement a time-out system if the robot stays still for too long
+		}
+		catch (GameActionException e) {
+			e.printStackTrace();
+		}
+		rc.yield();
+	}
+
+
+	private static void supplierCode() throws GameActionException{
+		checkOutnumbered();
+		rc.yield();
+	}
+	
+	/**
+	 * For use by all except HQ.
+	 * 
+	 * Check whether the number of enemies within sight range is
+	 * greater than the number of friendly units.
+	 * If so, message HQ.
+	 * 
+	 * Soldier broadcasts go to channel = soldier ID + soldierBroadcastChannelOffset
+	 * Message: randomMessagingDigits and then 6 and then :
+	 *		a) Digit corresponding to how significantly outnumbered a robot is (#enemies - #friends)
+	 * 		b) Two digits corresponding to x coordinate of robot position (example if only 1 digit: 5 becomes 05)
+	 * 		c) Two digits corresponding to y coordinate of robot position (example if only 1 digit: 5 becomes 05)
+	 */
+	private static boolean checkOutnumbered() throws GameActionException {
+		Robot[] nearbyRobots = rc.senseNearbyGameObjects(Robot.class);
+		int friendlyRobotCount = 0;
+		int enemyRobotCount = 0;
+		for (int i=0; i<nearbyRobots.length; i++) {
+			if (nearbyRobots[i].getTeam() == rc.getTeam()) {
+				friendlyRobotCount++;
+			}
+			else {
+				enemyRobotCount++;
+			}
+		}
+		if (friendlyRobotCount < enemyRobotCount) {
+			MapLocation currentLocation = rc.getLocation();
+			rc.broadcast(rc.getRobot().getID() + soldierBroadcastChannelOffset, 
+					(int)(randomMessagingDigits*Math.pow(10,6) + 6*Math.pow(10,5)) + 
+					(int)((enemyRobotCount - friendlyRobotCount) * Math.pow(10,4)) +
+					(int)(currentLocation.x * Math.pow(10, 2)) + currentLocation.y);
+			return true;
+		}
+		return false;
+	}
+	
+	/**
+	 * For use by soldier.
+	 * 
+	 * Check whether the soldier is standing on an encampment and not capturing it.
+	 * See if there is a message from HQ giving instructions on what to build.
+	 * If there are instructions, then follow them.
+	 * Otherwise, message HQ and wait for instructions regarding what to build.
+	 * 
+	 * Encampment Message (randomMessagingDigits 5 _____):
+	 * 			a) Digit corresponding to encampment type
+	 * 				0 - unassigned (soldier reporting that it is standing on unassigned encampment)
+	 * 				1 - medbay
+	 * 				2 - shields
+	 * 				3 - artillery
+	 * 				4 - generator
+	 * 				5 - supplier
+	 * 			b) Other 4 digits are zeroes
+	 */
+	private static void checkEncampment() throws GameActionException{
+		MapLocation myLoc = rc.getLocation();
+		int myID = rc.getRobot().getID();
+		if (rc.senseEncampmentSquare(myLoc) && rc.senseObjectAtLocation(myLoc).getTeam() == Team.NEUTRAL) {
+			int message = rc.readBroadcast(myID + soldierBroadcastChannelOffset);
+			if (isLegitMessage(message) && getMessageDigit(message,4) == 5 && 
+					getMessageDigit(message,5) != 0)
+			{
+				int x = (int)((message%Math.pow(10,5))/Math.pow(10,4));
+				RobotType encampmentType = null;
+				switch(x) {
+				case 1:
+					encampmentType = RobotType.MEDBAY;
+					break;
+				case 2:
+					encampmentType = RobotType.SHIELDS;
+					break;
+				case 3:
+					encampmentType = RobotType.ARTILLERY;
+					break;
+				case 4:
+					encampmentType = RobotType.GENERATOR;
+					break;
+				case 5:
+					encampmentType = RobotType.SUPPLIER;
+					break;
+				default:
+					break;
+				}
+				if (encampmentType != null)
+				{
+					rc.captureEncampment(encampmentType);
+				}
 			}
 			else
-			{//someone spotted
-				
-				MapLocation closestEnemy = findClosest(enemyRobots);
-				smartCountNeighbors(enemyRobots,closestEnemy);
-				if (isSwarm(enemyRobots.length))
-				{
-					avoidSwarm(closestEnemy);
-				}
-				else
-				{
-					goToLocation(closestEnemy);
-				}
-					
-				
-//				int closestDist = 1000000;
-//				MapLocation closestEnemy=null;
-//				for (int i=0;i<enemyRobots.length;i++)
-//				{
-//					Robot arobot = enemyRobots[i];
-//					RobotInfo arobotInfo = rc.senseRobotInfo(arobot);
-//					int dist = arobotInfo.location.distanceSquaredTo(rc.getLocation());
-//					if (dist<closestDist)
-//					{
-//						closestDist = dist;
-//						closestEnemy = arobotInfo.location;
-//					}
-//				}
-//				
-
-			}
-		} 
-		else if (encampmentRobots.contains(ID))
-		{
-			encampmentSoldierMove();
-		}
-		else
-		{
-			//heal the robots with HP < 10
-//			if (rc.getEnergon() < 10)
-//			{
-//				chargingRobots.remove(chargingRobots.indexOf(ID));
-//				quiescentRobots.add(ID);
-//				healingRobots.add(rc.getRobot().getID());
-//			}
-			
-			//else
 			{
-				goToLocation(rc.senseEnemyHQLocation());
-			}
+				rc.broadcast(myID + soldierBroadcastChannelOffset, 
+						(int)(randomMessagingDigits * Math.pow(10, 6) + 5*Math.pow(10,5)));
+			}	
 		}
-		
-		if (timeCount >= 100)
-		{
-			timeCount = 0;
-			chargingRobots = quiescentRobots;
-			quiescentRobots = new ArrayList<Integer>();
-		}
-		
-//		if(rallying == true && chargingRobots.contains(rc.getRobot().getID()))
-//		{
-//			goToLocation(rallyPoint);
-//		}
-//		
-//		if(rallying == true && rallyTime >=40)
-//		{
-//			rallying = false;
-//			rallyTime = 0;
-//		}
 	}
 	
-	private static void avoidSwarm(MapLocation enemy) throws GameActionException
-	{
-		MapLocation us = rc.getLocation();
-		double[] perpendicular = calculatePerpendicularLine(us, enemy);
-		if (Math.random() < .5)
-		{
-			goToLocation(new MapLocation(  (us.x+10)  ,  (int)(us.y+10*perpendicular[0])));
+	/**
+	 * For use by soldier. Only accessed if assigned = false
+	 * 
+	 * Read channel corresponding to soldier ID for group channel assignment.
+	 * Set assigned to true if a group assignment is obtained and clear the channel.
+	 * Send message to HQ on channel frequency matching ID, signifying that
+	 * soldier is ready for action, if the read does not result in an assignment.
+	 */
+	private static void joinGroup() throws GameActionException {
+		int channel = rc.getRobot().getID() + soldierBroadcastChannelOffset;
+		int message = rc.readBroadcast(channel);
+		if (isLegitMessage(message) && getMessageDigit(message,4) == 1) {
+			groupFrequency = message%100000;
+			rc.broadcast(channel,0);
+			assigned = true;
 		}
 		else
 		{
-			goToLocation(new MapLocation(us.x-10,(int)(us.y-10*perpendicular[0])));
+			rc.broadcast(channel,(int)(randomMessagingDigits*Math.pow(10,6) + 2*Math.pow(10,5)));
 		}
 	}
 	
-	private static double[] calculatePerpendicularLine(MapLocation us, MapLocation them)
-	{
-		double[] arr = new double[2];
-		if (them.x-us.x== 0 )
+	/**
+	 * All calculate methods for use by soldier.
+	 * 
+	 * Depending on the type of movement required, calculate a heuristic value
+	 * for the 8 squares surrounding the soldier. Return in an array of length
+	 * 8, in the order that the directions are declared in the enum.
+	 * Use a for loop over Direction.values().
+	 * 
+	 * @return an array of integer costs
+	 */
+	private static int[] retreatCalculate() {
+		//TODO implement
+		return null;
+	}
+	private static int[] interceptCalculate() {
+		//TODO implement
+		return null;
+	}
+	private static int[] rallyCalculate() {
+		//TODO implement
+		return null;
+	}
+	private static int[] attackCalculate() {
+		int [] costs = new int [8];
+		int i = 0;
+		Direction bestDirection = rc.getLocation().directionTo(goal);
+		Direction secondBestLeft = bestDirection.rotateLeft();
+		Direction secondBestRight = bestDirection.rotateRight();
+		Direction worst = bestDirection.opposite();
+		Direction secondWorstLeft = worst.rotateLeft();
+		Direction secondWorstRight = worst.rotateRight();
+		for (Direction d:Direction.values()){
+			if (!rc.canMove(d)){
+				costs[i] = 1000;
+			}
+			else{
+				MapLocation target = rc.getLocation().add(d);
+				// Factor in correct direction
+				if (d == bestDirection){
+					costs [i] -= (2 * directionMultiplier);
+				} else if (d == secondBestLeft){
+					costs [i] -= (directionMultiplier);
+				} else if (d == secondBestRight){
+					costs [i] -= (directionMultiplier);
+				} else if (d == worst){
+					costs [i] += (2 * directionMultiplier);
+				} else if (d == secondWorstLeft){
+					costs [i] += (directionMultiplier);
+				} else if (d == secondWorstRight){
+					costs [i] += (directionMultiplier);
+				}
+				// Factor in mine defusing
+				Team mineTeam = rc.senseMine(target);
+				if (mineTeam == rc.getTeam().opponent() || mineTeam == Team.NEUTRAL){
+					costs [i] += (mineMultiplier);
+				}
+			}
+			i++;
+		}
+		return costs;
+	}
+	private static int[] captureCalculate() {
+		//TODO implement
+		return null;
+	}
+	private static int[] defendCalculate() {
+		//TODO implement
+		return null;
+	}
+	
+	/**
+	 * For use by soldier.
+	 * 
+	 * @param costs array of costs of all surrounding squares
+	 * @return the direction of least cost
+	 */
+	private static Direction findMin(int[] costs) {
+		int min = 999;
+		int i = 0;
+		for (int cost:costs){
+			if (cost <= min){
+				min = cost;
+			}
+			i++;
+		}
+		return Direction.values()[i];
+	}
+	
+	/**
+	 * For use by HQ.
+	 * 
+	 * Determine how large the attack groups should be (exploration groups have size 1 always)
+	 * based on how often we are getting outnumbered.
+	 * 
+	 * @return the new group size
+	 */
+	private static int determineGroupSize() {
+		if (Clock.getRoundNum()<100){
+			groupSize=1;
+			
+		}
+		else if (strategy=="rushLikeYourLifeDependsOnIt"){
+			groupSize=3;
+		}
+		else if (strategy=="rushEnemyHQ"){
+			groupSize=5;
+		}
+		else if (strategy=="captureSomeQuickAndDefend"){
+			groupSize=10;
+		}
+		else if (strategy=="amassGiantArmyAndDestroy"){
+			groupSize=15;
+		}
+		else{
+			rc.suicide();
+		}
+		return groupSize;
+	}
+	
+	/**
+	 * For use by HQ.
+	 * 
+	 * Calculate the maximum number of troops that we can support based on the
+	 * number of generators and known bytecode costs of soldiers.
+	 * 
+	 * @return the new maximum number of soldiers
+	 */
+	private static int calculateMaxSoldiers() {
+		maxSoldiers = 1000;
+		return maxSoldiers;
+	}
+	
+	/**
+	 * For use by HQ.
+	 * 
+	 * Read broadcasts from soldiers reporting for duty.
+	 * Maintain list of soldiers that are ready.
+	 * Determine which missions need to be completed.
+	 * Message soldiers and group channels accordingly.
+	 */
+	private static void assignMissions() {
+		rc.readBroadcast(arg0)
+		//insert stuff about 
+		if (strategy=="rushLikeYourLifeDependsOnIt"){
+			
+		}
+		else if (strategy=="rushEnemyHQ"){
+			do this;
+		}
+		else if (strategy=="captureSomeQuickAndDefend"){
+			do this;
+		}
+		else if (strategy=="amassGiantArmyAndDestroy"){
+			do this;
+		}
+		else{
+			rc.suicide();
+		}
+	}
+	
+	/**
+	* For use by HQ.
+	* 
+	* Read broadcasts from soldiers reporting for duty.
+	* Maintain list of soldiers that are ready.
+	* Determine which missions need to be completed.
+	* Message soldiers and group channels accordingly.
+	*/
+	private static void setInitialStrategy() {
+		/*Sudo Code!!*/
+		int enemyDistance=(rc.senseEnemyHQLocation().x-rc.senseHQLocation().x)^2+(rc.senseEnemyHQLocation().y-rc.senseHQLocation().y)^2;
+		if (enemyDistance<reallyClose){
+			strategy="rushLikeYourLifeDependsOnIt";
+			encampmentMax=1;
+			encampmentsToTake={"ARTILLERY"};
+			groupSize=3;
+			research={"DEFUSION"};
+		}
+		else if ((rc.getMapHeight()+rc.getMapWidth())<smallMapSize){
+			
+			encampmentsToTake={"ARTILLERY"};
+			//encampmentsDirectionPriority=enemyHQ;
+			
+			strategy="rushEnemyHQ";
+			groupSize=5;
+		}
+		
+		else if (enemyDistance<kindaClose){
+			strategy="captureSomeQuickAndDefend";
+			encampmentsToTake={"SUPPLIER","ARTILLERY","GENERATOR","SHIELDS","MEDBAY"};
+			research={"PICKAXE"};
+			groupSize=10;
+		}
+		else{
+			strategy="amassGiantArmyAndDestroy";
+			encampmentsToTake={"SUPPLIER", "GENERATOR"};
+			research={"FUSION", "PICKAXE", "VISION", "NUKE"};
+			groupSize=15;
+		}
+		
+				
+	}
+	
+	/**
+	 * For use by HQ.
+	 * 
+	 * Listen for soldiers reporting that they have reached encampments.
+	 * Determine what types of encampments are needed.
+	 * Message group channels accordingly.
+	 */
+	private static void manageEncampments() {
+		//TODO implement
+	}
+	
+	/**
+	 * For use by HQ.
+	 * 
+	 * Listen for soldiers and encampments reporting that they are outnumbered.
+	 * Determine how to respond.
+	 * Message group channels and unassigned soldiers accordingly.
+	 */
+	private static void manageDefenses() {
+		//TODO implement
+	}
+	
+	/**
+	 * For use by HQ.
+	 * 
+	 * Determine priority order for upgrades and research.
+	 */
+	private static void researchUpgrades() {
+		//Develop a nuke if the game board is very large and there are many mines, 
+		//or if more than 1000 rounds have been played (so the armies are of equal strength)
+		if ( (manhattanDistance(ourLoc,theirLoc) >= 65 && areALotOfCenterMines()) ||
+				Clock.getRoundNumber() > 1000)
 		{
-			System.out.println("Line error");
+			rc.researchUpgrade(Upgrade.NUKE);
 		}
-		double a = ((double)(them.y-us.y))/((double)(them.x-us.x));
-		double a2 = -1.0/a;
-		double b = (double)us.y - (a2* (double)us.x);
-		arr[0] = a2;
-		arr[1] = b;
-		return arr;
+		else if (manhattanDistance(ourLoc,theirLoc) <= 25 && 
+				rc.checkResearchProgress(Upgrade.DEFUSION) < 25) {
+			rc.researchUpgrade(Upgrade.DEFUSION);
+		}
+		else if (rc.checkResearchProgress(Upgrade.PICKAXE) < 25) {
+			rc.researchUpgrade(Upgrade.PICKAXE);
+		}
+		else if (rc.checkResearchProgress(Upgrade.FUSION) < 25) {
+			rc.researchUpgrade(Upgrade.FUSION);
+		}
+		else if (rc.checkResearchProgress(Upgrade.VISION) < 25) {
+			rc.researchUpgrade(Upgrade.VISION);
+		}
 	}
 	
-	private static int distance(MapLocation a, MapLocation b)
+	/**
+	 * @return true if there are a lot of mines along the line between our HQ and their HQ
+	 */
+	private static boolean areALotOfCenterMines() {
+		//TODO code this
+	}
+	
+	/**
+	 * 
+	 * @return the total number of soldiers on our team that exist at a given time
+	 */
+	private static int countSoldiers() {
+		return rc.senseNearbyGameObjects(Robot.class,(Math.max(rc.getMapHeight(),rc.getMapWidth()))^2,rc.getTeam()).length;
+	}
+	
+	/**
+	 * Checks if a legitimate message by checking if the first three digits are the random
+	 * messaging digits and, as a result, if the message is 9 digits long.
+	 */
+	private static boolean isLegitMessage(int message) {
+		return (int)(message / Math.pow(10, 6)) == randomMessagingDigits;
+	}
+	
+	/**
+	 * Returns a certain digit of a message. 
+	 * For example, if the message is 123456789, the digit 1 is 1, the digit 2 is 2, etc.
+	 */
+	private static int getMessageDigit(int message, int digit)
+	{
+		int x = 10 - digit;
+		return (int)((message % Math.pow(10, x))/Math.pow(10, x-1));
+	}
+	
+	/**
+	 * Returns Manhattan distance between points
+	 */
+	private static int manhattanDistance(MapLocation a, MapLocation b)
 	{
 		return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 	}
-	
-	private static MapLocation findNearestMedbay() throws GameActionException
-	{
-		MapLocation[] allied = rc.senseAlliedEncampmentSquares();
-		MapLocation curr = rc.getLocation();
-		int minDist = 1000000;
-		MapLocation nearestMedbay = encampLocs.get(0);
-		
-		for(int i=0; i<allied.length; i++)
-		{
-			GameObject x = rc.senseObjectAtLocation(allied[i]);
-			if (x instanceof Robot)
-			{
-				if(rc.senseRobotInfo((Robot)x).type == RobotType.MEDBAY)
-				{
-					int d = distance(curr,allied[i]);
-					if (d<minDist) {
-						minDist = d;
-						nearestMedbay = allied[i];
-					}
-				}
-			}
-		}
-		return nearestMedbay;
-	}
-	
-	private static void encampmentSoldierMove() throws GameActionException{
-		//see if an encampment is nearby
-		if(rc.senseEncampmentSquare(rc.getLocation())) {
-//			if (currentEncampTarget %8 == 0)
-//			{
-//				rc.captureEncampment(RobotType.MEDBAY);
-//			}
-//			else
-			{
-				
-				rc.captureEncampment(RobotType.SUPPLIER);
-			}
-		}
-		else {
-			if (encampLocs == null)
-			{
-				MapLocation[] locs = rc.senseEncampmentSquares(rc.senseHQLocation(),100000,Team.NEUTRAL);
-				locs = mergeSort(locs, 0, locs.length);
-				encampLocs = new ArrayList<MapLocation>(Arrays.asList(locs));
-			}
-			//if so, set encampmentLoc to that encampment
-			if (encampLocs.size() > currentEncampTarget)
-			{
-				//timer keeps track of whether encampment is captured or not
-//				if (timer == -1)
-//				{
-//					timer = Clock.getRoundNum() + 55;
-//					currentEncampTarget++;
-//					if (currentEncampTarget > encampLocs.size()) {
-//						currentEncampTarget = 0;
-//					}
-//				}
-
-				MapLocation destination = encampLocs.get(currentEncampTarget);
-				goToLocation(destination);
-				//timer--;
-			}
-			else
-			{
-				goToLocation(rallyPoint);
-			}
-		}
-	}
-	
-	private static MapLocation findClosest(MapLocation a, MapLocation[]locs) {
-		int closestDist = 1000000;
-		MapLocation closestLoc = null;
-		for (int i=0; i<locs.length; i++)
-		{
-			int dist = distance(a,locs[i]);
-			if (dist < closestDist)
-			{
-				closestDist = dist;
-				closestLoc = locs[i];
-			}
-		}
-		return closestLoc;
-	}
-	
-	private static MapLocation findRallyPoint() {
-		MapLocation enemyLoc = rc.senseEnemyHQLocation();
-		MapLocation ourLoc = rc.senseHQLocation();
-		int weight = Clock.getRoundNum() / 50 + 1;
-		int x = (enemyLoc.x+3*ourLoc.x)/(4);
-		int y = (enemyLoc.y+3*ourLoc.y)/(4);
-		MapLocation rallyPoint = new MapLocation(x,y);
-		return rallyPoint;
-	}
-	
-	private static void goToLocation(MapLocation whereToGo) throws GameActionException {
-		int dist = rc.getLocation().distanceSquaredTo(whereToGo);
-		int nearbyRobotCount = 0;
-		if (dist>0&&rc.isActive()){
-			Direction dir = rc.getLocation().directionTo(whereToGo);
-			int[] directionOffsets = {0,1,-1,2,-2};
-			Direction lookingAtCurrently = null;
-			lookAround: for (int d:directionOffsets){
-				lookingAtCurrently = Direction.values()[(dir.ordinal()+d+8)%8];
-				if(rc.canMove(lookingAtCurrently)){
-					moveOrDefuse(lookingAtCurrently);
-					break lookAround;
-				}
-				else
-				{
-					nearbyRobotCount ++;
-					MapLocation curr = rc.getLocation();
-					if (Math.abs(curr.x - whereToGo.x) + Math.abs(curr.y - whereToGo.y) < 3) {
-						currentEncampTarget++;
-					}
-				}
-			}
-		}
-	}
-	
-	private static void moveOrDefuse(Direction dir) throws GameActionException{
-		MapLocation ahead = rc.getLocation().add(dir);
-		if(rc.senseMine(ahead)!= null){
-			rc.defuseMine(ahead);
-		}else{
-			rc.move(dir);			
-		}
-	}
-	
-	public static void HQSpawn() throws GameActionException{
-		if (rc.isActive()) {
-			// Spawn a soldier
-			Direction dir = rc.getLocation().directionTo(rc.senseEnemyHQLocation());
-			if (rc.canMove(dir) && rc.getTeamPower() > 100)
-				rc.spawn(dir);
-		}
-	}
-	
-	
-//SORTING
-	public static MapLocation[] mergeSort(MapLocation[] arr, int begin, int end)
-	{
-		if (end-begin == 1)
-		{
-			return arr;
-		}
-		int mid = (begin+end)/2;
-		mergeSort(arr,begin,mid);
-		mergeSort(arr,mid,end);
-		merge(arr,begin,mid,end);
-		return arr;
-	}
-	
-	public static MapLocation[] merge(MapLocation[]arr, int begin, int mid, int end)
-	{
-		MapLocation[] temp = new MapLocation[end-begin];
-		int arrindex = 0;
-		int i = begin;
-		int j = mid;
-		
-		MapLocation HQLoc = rc.senseHQLocation();
-		
-		while (i<mid || j< end)
-		{
-			if (j == end || (i<mid && j<end && 
-					distanceToLine(arr[i]) < distanceToLine(arr[j])))
-			{
-				temp[arrindex] = arr[i];
-				i++;
-			}
-			else
-			{
-				temp[arrindex] = arr[j];
-				j++;
-			}
-			
-			arrindex ++;
-		}
-		
-		for(int k=0; k< temp.length; k++)
-		{
-			arr[begin + k] = temp[k];
-		}
-		
-		return arr;
-	}
-	
-	private static double distanceToLine(MapLocation loc)
-	{
-		double y = midline[0]*(double)loc.x + midline[1];
-		return Math.abs(y - (double)loc.y);
-	}
-	
-	
-	private static MapLocation findClosest(Robot[] enemyRobots) throws GameActionException {
-		int closestDist = 1000000;
-		MapLocation closestEnemy=null;
-		for (int i=0;i<enemyRobots.length;i++){
-			Robot arobot = enemyRobots[i];
-			RobotInfo arobotInfo = rc.senseRobotInfo(arobot);
-			int dist = arobotInfo.location.distanceSquaredTo(rc.getLocation());
-			if (dist<closestDist){
-				closestDist = dist;
-				closestEnemy = arobotInfo.location;
-			}
-		}
-		return closestEnemy;
-	}
-
-//	ARRAY-BASED NEIGHBOR DETECTION
-	private static void smartCountNeighbors(Robot[] enemyRobots,MapLocation closestEnemy) throws GameActionException{
-		//build a 5 by 5 array of neighboring units
-		neighborArray = populateNeighbors(new int[5][5]);/*1500*/
-		//get the total number of enemies and allies adjacent to each of the 8 adjacent tiles
-		int[] adj = totalAllAdjacent(neighborArray);/*2500*/
-		
-		//also check your current position
-		int me = totalAdjacent(neighborArray,self);
-		
-		//display the neighbor information to the indicator strings
-		//rc.setIndicatorString(0, "adjacent: "+intListToString(adj)+" me: "+me);
-		//note: if the indicator string says 23, that means 2 enemies and 3 allies.
-		
-		//TODO: Now act on that data. I leave this to you. 
-		
-	}
-	public static int[] locToIndex(MapLocation ref, MapLocation test,int offset){/*40*/
-		int[] index = new int[2];
-		index[0] = test.y-ref.y+offset;
-		index[1] = test.x-ref.x+offset;
-		return index;
-	}
-	public static int[][] initSurroundingIndices(Direction forward){
-		int[][] indices = new int[8][2];
-//		Direction forward =rc.getLocation().directionTo(rc.senseEnemyHQLocation());
-		int startOrdinal = forward.ordinal();
-		MapLocation myLoc = rc.getLocation();
-		for(int i=0;i<8;i++){
-			indices[i] = locToIndex(myLoc,myLoc.add(Direction.values()[(i+startOrdinal)%8]),0);
-		}
-		return indices;
-	}
-	public static String arrayToString(int[][] array){
-		String outstr = "";
-		for(int i=0;i<5;i++){
-			outstr = outstr + "; ";
-			for(int j=0;j<5;j++)
-				outstr = outstr+array[i][j]+" ";
-		}
-		return outstr;
-	}
-	public static int[][] populateNeighbors(int[][] array) throws GameActionException{/*788*/
-		MapLocation myLoc=rc.getLocation();
-		Robot[] nearbyRobots = rc.senseNearbyGameObjects(Robot.class,8);
-//		rc.setIndicatorString(2, "number of bots: "+nearbyRobots.length);
-		for (Robot aRobot:nearbyRobots){
-			RobotInfo info = rc.senseRobotInfo(aRobot);
-			int[] index = locToIndex(myLoc,info.location,2);
-			if(index[0]>=0&&index[0]<=4&&index[1]>=0&&index[1]<=4){
-				if(info.team==rc.getTeam()){
-					array[index[0]][index[1]]=1;//1 is allied
-				}else{
-					array[index[0]][index[1]]=10;//10 is enemy
-				}
-			}
-		}
-		return array;
-	}
-	public static int totalAdjacent(int[][] neighbors,int[] index){/*270*/
-		int total = 0;
-		for(int i=0;i<8;i++){
-			total = total+neighbors[index[0]+surroundingIndices[i][0]][index[1]+surroundingIndices[i][1]];
-		}
-		return total;
-	}
-	public static int[] addPoints(int[] p1, int[] p2){/*30*/
-		int[] tot = new int[2];
-		tot[0] = p1[0]+p2[0];
-		tot[1] = p1[1]+p2[1];
-		return tot;
-	}
-	public static int[] totalAllAdjacent(int[][] neighbors){/*2454*/
-		//TODO compute only on open spaces (for planned movement)
-		int[] allAdjacent = new int[8];
-		for(int i=0;i<8;i++){
-			allAdjacent[i] =  totalAdjacent(neighbors,addPoints(self,surroundingIndices[i]));
-		}
-		return allAdjacent;
-	}
-//heuristic: goodness or badness of a neighbor int, which includes allies and enemies
-	
-	public static double howGood(int neighborInt){
-		double goodness = 0;
-		double numberOfAllies = neighborInt%10;
-		double numberOfEnemies = neighborInt-numberOfAllies;
-		goodness = numberOfAllies-numberOfEnemies;
-		return goodness;
-	}
-	public static boolean isSwarm(int numberOfEnemies){
-		if (numberOfEnemies>=5){
-			return true;
-		}
-		else{
-			return false;
-		}
-		
-	}
 }
-
-	

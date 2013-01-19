@@ -13,7 +13,7 @@ public class RobotPlayer {
 	private static MapLocation goal;
 	// HQ variables
 	private static int groupSize = 10;
-	private static int maxSoldiers = 25;
+	private static int maxSoldiers = 40;
 	private static MapLocation[]encampmentLocations;
 	private static MapLocation[] mineLocations;
 	private static ArrayList<Integer> newSoldiers;
@@ -89,6 +89,8 @@ public class RobotPlayer {
 			mineLocations = rc.senseMineLocations(new MapLocation(rc.getMapHeight()/2, rc.getMapWidth()/2), 100, Team.NEUTRAL);
 			
 		}
+		
+		
 		
 		groupSize = determineGroupSize();
 		maxSoldiers = calculateMaxSoldiers();
@@ -173,66 +175,10 @@ public class RobotPlayer {
 		
 		Robot[] enemyRobots = rc.senseNearbyGameObjects(Robot.class,1000000,rc.getTeam().opponent());
 		if (rc.isActive()){
-			Direction next;
-			if(enemyRobots.length==0){//no enemies nearby
-				
-				if (Clock.getRoundNum()<200){
-					next = nextDirection(rallyPoint);
-					if (rc.senseMine(rc.getLocation().add(next))!=null) 
-					{
-					if (rc.isActive()) rc.defuseMine(rc.getLocation().add(next));
-					rc.yield();
-					}
-					else if (rc.senseEncampmentSquare(rc.getLocation()))  {
-						if (rc.isActive()) rc.captureEncampment(RobotType.MEDBAY);
-						rc.yield();
-					}
-					/*else if (rc.senseMine(rc.getLocation().add(Direction.NONE))==null && !rc.getLocation().isAdjacentTo(rc.senseHQLocation())) {
-						if (rc.isActive()) rc.layMine();
-						rc.yield();
-					}*/
-					else {
-						if (next!=Direction.NONE && rc.isActive() && rc.canMove(next)) rc.move(next);
-						rc.yield();
-					}
-					
-				}
-				else{
-					if (retreat==false) {						
-						next = minelessDirection(rc.senseEnemyHQLocation());
-						if (next!= Direction.NONE && rc.isActive() && rc.canMove(next)) rc.move(next);
-						rc.yield();
-					}
-					else {
-
-						
-						next = minelessDirection(rc.senseEnemyHQLocation());
-						if (next!= Direction.NONE && rc.isActive() && rc.canMove(next)) rc.move(next);
-						rc.yield();
-					}
-					
-					
-				}
-				}
-			else{//someone spotted
-				int closestDist = 1000000;
-				MapLocation closestEnemy=null;
-				for (int i=0;i<enemyRobots.length;i++){
-					Robot arobot = enemyRobots[i];
-					RobotInfo arobotInfo = rc.senseRobotInfo(arobot);
-					int dist = arobotInfo.location.distanceSquaredTo(rc.getLocation());
-					if (dist<closestDist){
-						closestDist = dist;
-						closestEnemy = arobotInfo.location;
-					}
-				}
-				next = minelessDirection(closestEnemy);
-				if (next!=Direction.NONE && rc.isActive() && rc.canMove(next)) rc.move(next);
-				rc.yield();
-			}
-			}
-		rc.yield();
-
+			Direction next = minelessDirection(rc.senseEnemyHQLocation());
+			if (next!= Direction.NONE && rc.isActive() && rc.canMove(next)) rc.move(next);
+			rc.yield();
+		}
 	}
 		
 

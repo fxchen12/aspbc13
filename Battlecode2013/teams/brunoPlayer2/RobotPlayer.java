@@ -13,7 +13,7 @@ public class RobotPlayer {
 	private static MapLocation goal;
 	// HQ variables
 	private static int groupSize = 10;
-	private static int maxSoldiers = 25;
+	private static int maxSoldiers = 40;
 	private static MapLocation[]encampmentLocations;
 	private static MapLocation[] mineLocations;
 	private static ArrayList<Group> groupsList;
@@ -90,6 +90,12 @@ public class RobotPlayer {
 			mineLocations = rc.senseMineLocations(new MapLocation(rc.getMapHeight()/2, rc.getMapWidth()/2), 100, Team.NEUTRAL);
 			
 		}
+		
+		if (Clock.getRoundNum() == 170) retreat = true;
+		if (Clock.getRoundNum() == 220) retreat = false;
+		if (Clock.getRoundNum() == 600) retreat = true;
+		if (Clock.getRoundNum() == 1200) retreat = false;
+		
 		
 		groupSize = determineGroupSize();
 		maxSoldiers = calculateMaxSoldiers();
@@ -177,7 +183,7 @@ public class RobotPlayer {
 			Direction next;
 			if(enemyRobots.length==0){//no enemies nearby
 				
-				if (Clock.getRoundNum()<200){
+				if (Clock.getRoundNum()<160){
 					next = nextDirection(rallyPoint);
 					if (rc.senseMine(rc.getLocation().add(next))!=null) 
 					{
@@ -206,7 +212,10 @@ public class RobotPlayer {
 						if (rc.isActive()) rc.defuseMine(rc.getLocation().add(next));
 						rc.yield();
 						}
-						
+						else {
+							if (next!= Direction.NONE && rc.isActive() && rc.canMove(next)) rc.move(next);
+							rc.yield();
+						}
 						/*next = minelessDirection(rc.senseEnemyHQLocation());
 						if (next!= Direction.NONE && rc.isActive() && rc.canMove(next)) rc.move(next);
 						rc.yield();*/
@@ -218,7 +227,10 @@ public class RobotPlayer {
 						if (rc.isActive()) rc.defuseMine(rc.getLocation().add(next));
 						rc.yield();
 						}
-						
+						else {
+							if (next!= Direction.NONE && rc.isActive() && rc.canMove(next)) rc.move(next);
+							rc.yield();
+						}
 						/*next = minelessDirection(rc.senseEnemyHQLocation());
 						if (next!= Direction.NONE && rc.isActive() && rc.canMove(next)) rc.move(next);
 						rc.yield();*/
